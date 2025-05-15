@@ -1,41 +1,68 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Container, Typography, Paper, Table, TableBody, TableCell, 
-  TableContainer, TableHead, TableRow, Button, CircularProgress
+  TableContainer, TableHead, TableRow, Button, CircularProgress, Alert
 } from '@mui/material';
 import { productService } from '../services/api';
 
 const LowStockProducts = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [useFallback, setUseFallback] = useState(false);
+
+  const fetchLowStockProducts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Primeiro tenta a API específica
+      if (!useFallback) {
+        try {
+          const response = await productService.getLowStock();
+          setProducts(response.data || []);
+          return;
+        } catch (apiError) {
+          console.warn('API de estoque baixo falhou, usando fallback', apiError);
+          setUseFallback(true);
+        }
+      }
+      
+      // Fallback: busca todos e filtra localmente
+      const allProductsResponse = await productService.getAll();
+      const allProducts = allProductsResponse.data.results || allProductsResponse.data || [];
+      const lowStockProducts = allProducts.filter(product => 
+        (product.stock_quantity || 0) <= (product.reorder_level || 0)
+      );
+      setProducts(lowStockProducts);
+      
+    } catch (error) {
+      console.error('Erro ao buscar produtos:', error);
+      setError('Erro ao carregar produtos com estoque baixo');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true);
-        const response = await productService.getAll();
-        const allProducts = response.data.results || response.data;
-        
-        // Filtrar produtos com estoque baixo localmente
-        const lowStockProducts = allProducts.filter(product => 
-          product.stock_quantity <= product.reorder_level
-        );
-        
-        setProducts(lowStockProducts);
-      } catch (error) {
-        console.error('Erro ao buscar produtos:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProducts();
-  }, []);
+    fetchLowStockProducts();
+  }, [useFallback]);
 
   if (loading) {
     return (
       <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
         <CircularProgress />
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+          <Button onClick={fetchLowStockProducts} sx={{ ml: 2 }}>Tentar novamente</Button>
+        </Alert>
       </Container>
     );
   }
@@ -46,6 +73,12 @@ const LowStockProducts = () => {
         Produtos com Estoque Baixo
       </Typography>
       
+      {useFallback && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Usando cálculo local de estoque baixo (a API específica não está disponível)
+        </Alert>
+      )}
+
       {products.length > 0 ? (
         <TableContainer component={Paper}>
           <Table>
@@ -53,22 +86,20 @@ const LowStockProducts = () => {
               <TableRow>
                 <TableCell>Nome</TableCell>
                 <TableCell>SKU</TableCell>
-                <TableCell>Categoria</TableCell>
-                <TableCell>Quantidade</TableCell>
+                <TableCell>Estoque Atual</TableCell>
                 <TableCell>Nível de Reposição</TableCell>
-                <TableCell>Status</TableCell>
+                <TableCell>Diferença</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {products.map((product) => (
-                <TableRow key={product.id}>
+                <TableRow key={product.id} hover>
                   <TableCell>{product.name}</TableCell>
                   <TableCell>{product.sku}</TableCell>
-                  <TableCell>{product.category_name}</TableCell>
                   <TableCell>{product.stock_quantity}</TableCell>
                   <TableCell>{product.reorder_level}</TableCell>
-                  <TableCell>
-                    <Typography color="error">Estoque Baixo</Typography>
+                  <TableCell sx={{ color: 'error.main' }}>
+                    {product.stock_quantity - product.reorder_level}
                   </TableCell>
                 </TableRow>
               ))}

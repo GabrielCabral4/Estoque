@@ -5,6 +5,7 @@ import Products from './pages/Products';
 import Categories from './pages/Categories';
 import Suppliers from './pages/Suppliers';
 import StockMovements from './pages/StockMovements';
+import LowStockProducts from './pages/LowStockProducts'; // Adicione esta linha
 import Navbar from './components/Navbar';
 
 function App() {

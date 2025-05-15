@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Container, Grid, Paper, Typography, Box, CircularProgress } from '@mui/material';
+import { 
+  Container, 
+  Grid, 
+  Paper, 
+  Typography, 
+  Box, 
+  CircularProgress, 
+  Alert,
+  Button  // Adicionei o Button nos imports
+} from '@mui/material';
 import { Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { productService, stockMovementService } from '../services/api';
@@ -19,66 +28,61 @@ const Dashboard = () => {
     }],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // 1. Buscar todos os produtos
+      const productsResponse = await productService.getAll();
+      const products = productsResponse.data.results || productsResponse.data || [];
+      
+      setProductCount(products.length);
+      
+      // Calcular valor total do estoque
+      const totalValue = products.reduce(
+        (sum, product) => sum + ((product.price || 0) * (product.stock_quantity || 0)),
+        0
+      );
+      setStockValue(totalValue);
+
+      // 2. Calcular produtos com estoque baixo
+      const lowStockProducts = products.filter(product => 
+        (product.stock_quantity || 0) <= (product.reorder_level || 0)
+      );
+      setLowStockCount(lowStockProducts.length);
+
+      // 3. Preparar dados do gráfico de categorias
+      const categories = {};
+      products.forEach(product => {
+        const categoryName = product.category?.name || product.category_name || 'Sem categoria';
+        categories[categoryName] = (categories[categoryName] || 0) + (product.stock_quantity || 0);
+      });
+
+      setCategoryData({
+        labels: Object.keys(categories),
+        datasets: [{
+          data: Object.values(categories),
+          backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'],
+        }],
+      });
+
+      // 4. Buscar movimentações recentes
+      const movementsResponse = await stockMovementService.getAll();
+      const movements = movementsResponse.data.results || movementsResponse.data || [];
+      setRecentMovements(movements.slice(0, 5));
+
+    } catch (error) {
+      console.error('Erro ao carregar dados do dashboard:', error);
+      setError('Erro ao carregar dados. Tente recarregar a página.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-        
-        // 1. Buscar produtos (prioritário)
-        const productsResponse = await productService.getAll();
-        const products = productsResponse.data.results || productsResponse.data || [];
-        
-        setProductCount(products.length);
-        
-        // Calcular valor total do estoque
-        const totalValue = products.reduce(
-          (sum, product) => sum + ((product.price || 0) * (product.stock_quantity || 0)),
-          0
-        );
-        setStockValue(totalValue);
-
-        // 2. Tentar buscar produtos com estoque baixo (se falhar, não quebra o fluxo)
-        try {
-          const lowStockResponse = await productService.getLowStock();
-          setLowStockCount(lowStockResponse.data?.length || 0);
-        } catch (error) {
-          console.warn('Erro ao buscar produtos com estoque baixo:', error);
-          setLowStockCount(0);
-        }
-
-        // 3. Preparar dados do gráfico de categorias
-        const categories = {};
-        products.forEach(product => {
-          const categoryName = product.category?.name || product.category_name || 'Sem categoria';
-          categories[categoryName] = (categories[categoryName] || 0) + (product.stock_quantity || 0);
-        });
-
-        setCategoryData({
-          labels: Object.keys(categories),
-          datasets: [{
-            data: Object.values(categories),
-            backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'],
-          }],
-        });
-
-        // 4. Tentar buscar movimentações recentes (se falhar, não quebra o fluxo)
-        try {
-          const movementsResponse = await stockMovementService.getAll();
-          const movements = movementsResponse.data.results || movementsResponse.data || [];
-          setRecentMovements(movements.slice(0, 5));
-        } catch (error) {
-          console.warn('Erro ao buscar movimentações:', error);
-          setRecentMovements([]);
-        }
-
-      } catch (error) {
-        console.error('Erro ao carregar dados principais:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 30000);
     return () => clearInterval(interval);
@@ -86,8 +90,19 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4, display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
+      <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
         <CircularProgress size={60} />
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 4, textAlign: 'center' }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+          <Button onClick={fetchDashboardData} sx={{ ml: 2 }}>Tentar novamente</Button>
+        </Alert>
       </Container>
     );
   }
@@ -145,11 +160,11 @@ const Dashboard = () => {
       {/* Gráficos */}
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', minHeight: 400 }}>
+          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>
               Distribuição de Produtos por Categoria
             </Typography>
-            <Box sx={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <Box sx={{ height: 300, display: 'flex', justifyContent: 'center' }}>
               {categoryData.labels.length > 0 ? (
                 <Doughnut 
                   data={categoryData} 
@@ -163,15 +178,15 @@ const Dashboard = () => {
                   }} 
                 />
               ) : (
-                <Typography color="text.secondary">
-                  Não há dados de categorias disponíveis
+                <Typography sx={{ textAlign: 'center', py: 4 }} color="text.secondary">
+                  Nenhum dado disponível
                 </Typography>
               )}
             </Box>
           </Paper>
         </Grid>
         <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, minHeight: 400 }}>
+          <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>
               Últimas Movimentações
             </Typography>
@@ -197,11 +212,9 @@ const Dashboard = () => {
                   </Box>
                 ))
               ) : (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-                  <Typography color="text.secondary">
-                    Nenhuma movimentação recente registrada
-                  </Typography>
-                </Box>
+                <Typography sx={{ textAlign: 'center', py: 4 }} color="text.secondary">
+                  Nenhuma movimentação recente
+                </Typography>
               )}
             </Box>
           </Paper>

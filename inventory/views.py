@@ -23,9 +23,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def low_stock(self, request):
-        low_stock_products = Product.objects.filter(
-            stock_quantity__lte=F('reorder_level')
-        )
+        low_stock_products = Product.objects.filter(stock_quantity__lte=models.F('reorder_level'))
         serializer = self.get_serializer(low_stock_products, many=True)
         return Response(serializer.data)
     
